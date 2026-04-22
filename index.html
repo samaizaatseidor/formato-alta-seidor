@@ -312,108 +312,101 @@ async function generateExcel(){
   const genArea = document.getElementById('gen-area');
   const errorArea = document.getElementById('error-area');
   errorArea.innerHTML='';
-  genArea.innerHTML='<div class="generating"><div class="spinner"></div><p style="color:var(--muted);font-size:14px;">Generando el Excel con formato oficial...<br><small>Esto toma unos segundos</small></p></div>';
+  genArea.innerHTML='<div class="generating"><div class="spinner"></div><p style="color:var(--muted);font-size:14px;">Generando el Excel con formato oficial...<br><small>Esto puede tomar 20-30 segundos</small></p></div>';
  
   const t = calcTotals();
-  const prompt = `Eres un asistente que genera archivos Excel para SEIDOR México. Tu única tarea es responder con un script Python (usando openpyxl) que llene el archivo FORMATO_DE_ALTA_2026.xlsx con los datos proporcionados.
- 
-DATOS DEL FORMATO DE ALTA:
-${JSON.stringify(D, null, 2)}
- 
-TOTALES CALCULADOS:
-- Total venta: ${t.tv}
-- Total costo: ${t.tc}
-- Margen: ${t.mg}
-- % Margen: ${t.pct.toFixed(2)}%
- 
-INSTRUCCIONES:
-Genera un script Python que:
-1. Cargue el archivo template desde la ruta exacta que se te indica
-2. Llene las siguientes celdas en la hoja SALES con los datos:
-   - D7: nombre_comercial del cliente
-   - D8: razon_social del cliente  
-   - D9: rfc del cliente
-   - D10: direccion del cliente
-   - D11: localidad del cliente
-   - D15: contacto_lider del cliente
-   - D16: telefono1 del cliente
-   - G16: correo1 del cliente
-   - D17: contacto_cp del cliente
-   - D18: telefono2 del cliente
-   - G18: correo2 del cliente
-   - D22: solicita_odc del cliente
-   - D23: portal del cliente
-   - D24: contrasena del cliente
-   - C26: proceso_fac del cliente
-   - R6: id_op_crm
-   - R7: nombre del proyecto
-   - R8: version del proyecto
-   - R9: fecha_inicio del proyecto
-   - R10: fecha_fin del proyecto
-   - K11: empresa del proyecto
-   - K12: intercompany del proyecto
-   - K13: responsable_coe del proyecto
-   - Q14: moneda del proyecto
-   - Q11: tc_usd del proyecto (como número)
-   - K23: director de responsables
-   - K24: dir_ops de responsables
-   - K25: gerente de responsables
-   - K26: division de responsables
-   - K27: ejecutivo de responsables
-   - Para costos (filas 37 a 42, máximo 6 filas): C=concepto, I=costo_unitario, K=venta_unitaria, N=dias
-   - D47: hay_ebm del ebm
-   - D48: razon_social del ebm
-   - D49: base_comision del ebm
-   - D50: pct_comision del ebm (como número)
-   - D52: moneda_pago del ebm
-   - Para facturación (filas 59 a 73, máximo 15 filas): C=descripcion, F=tipo, H=division, I=cuotas, K=importe, O=fecha, Q=recurrencia, R=cond_pago, S=vob
-   - B77: obs_fac
-3. Guarde el archivo con el nombre: FormatoAlta_CLIENTE_FECHA.xlsx donde CLIENTE es el nombre comercial sin espacios y FECHA es la fecha actual
-4. Convierta el archivo guardado a base64 e imprima SOLO el base64 en stdout, sin ningún otro texto
- 
-El script debe ser ejecutable y no debe imprimir nada más que el base64 del archivo resultante.`;
  
   try {
     const response = await fetch('https://anthropic-proxy.samuel-aiza.workers.dev', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 4000, messages: [{ role: 'user', content: prompt }] })
-    });
-    if(!response.ok){ throw new Error(`API error: ${response.status} ${response.statusText}`); }
-    const data = await response.json();
-    const text = data.content?.filter(b=>b.type==='text').map(b=>b.text).join('');
- 
-    // Extract Python code from response
-    const codeMatch = text.match(/```python\n([\s\S]*?)```/) || text.match(/```\n([\s\S]*?)```/);
-    const code = codeMatch ? codeMatch[1] : text;
- 
-    // Send to Claude Code executor (second API call to actually run the Python)
-    const execResponse = await fetch('https://anthropic-proxy.samuel-aiza.workers.dev', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514', max_tokens: 6000,
-        system: 'You are a Python code executor. When given Python code and a base64-encoded Excel file, you execute the code mentally and return ONLY the base64 of the resulting Excel file. Do not explain anything.',
+        model: 'claude-sonnet-4-5',
+        max_tokens: 8000,
+        system: `Eres un generador de archivos Excel para SEIDOR México. Recibirás datos de un Formato de Alta y el template Excel en base64. Tu tarea es devolver ÚNICAMENTE el base64 del Excel llenado con los datos, sin ningún texto adicional, sin explicaciones, sin markdown. Solo el string base64 puro.`,
         messages: [{
           role: 'user',
-          content: `Execute this Python code. The template Excel file (FORMATO_DE_ALTA_2026.xlsx) is provided as base64 below. Fill in the data, save to bytes, and return ONLY the base64 of the result, nothing else.
+          content: `Llena el template Excel con estos datos y devuelve SOLO el base64 del resultado.
  
-TEMPLATE BASE64:
+TEMPLATE BASE64 (FORMATO_DE_ALTA_2026.xlsx):
 ${TEMPLATE_B64}
  
-PYTHON CODE:
-${code}
+DATOS A LLENAR:
+${JSON.stringify({
+  id_op_crm: D.id_op_crm,
+  tiene_pep: D.tiene_pep,
+  pep: D.pep,
+  cliente: D.cliente,
+  proyecto: D.proyecto,
+  responsables: D.responsables,
+  costos: D.costos,
+  facturacion: D.facturacion,
+  ebm: D.ebm,
+  obs_fac: D.obs_fac,
+  totales: { tv: t.tv, tc: t.tc, mg: t.mg, pct: t.pct.toFixed(2) }
+}, null, 2)}
  
-Return ONLY the base64 string of the filled Excel file.`
+CELDAS A LLENAR EN LA HOJA SALES:
+- D7: cliente.nombre_comercial
+- D8: cliente.razon_social
+- D9: cliente.rfc
+- D10: cliente.direccion
+- D11: cliente.localidad
+- D15: cliente.contacto_lider
+- D16: cliente.telefono1
+- G16: cliente.correo1
+- D17: cliente.contacto_cp
+- D18: cliente.telefono2
+- G18: cliente.correo2
+- D22: cliente.solicita_odc
+- D23: cliente.portal
+- D24: cliente.contrasena
+- C26: cliente.proceso_fac
+- R6: id_op_crm
+- R7: proyecto.nombre
+- R8: proyecto.version
+- R9: proyecto.fecha_inicio
+- R10: proyecto.fecha_fin
+- K11: proyecto.empresa
+- K12: proyecto.intercompany
+- K13: proyecto.responsable_coe
+- Q14: proyecto.moneda
+- Q11: proyecto.tc_usd (número)
+- K23: responsables.director
+- K24: responsables.dir_ops
+- K25: responsables.gerente
+- K26: responsables.division
+- K27: responsables.ejecutivo
+- Costos filas 37-42: C=concepto, I=costo_unitario (número), K=venta_unitaria (número), N=dias (número)
+- D47: ebm.hay_ebm
+- D48: ebm.razon_social
+- D49: ebm.base_comision
+- D50: ebm.pct_comision (número)
+- D52: ebm.moneda_pago
+- Facturación filas 59-73: C=descripcion, F=tipo, H=division, I=cuotas (número), K=importe (número), O=fecha, Q=recurrencia, R=cond_pago, S=vob
+- B77: obs_fac
+ 
+Usa Python con openpyxl para cargar el template desde base64, llenar las celdas, y devolver el resultado como base64. Devuelve ÚNICAMENTE el base64, nada más.`
         }]
       })
     });
  
-    if(!execResponse.ok){ throw new Error(`Execution API error: ${execResponse.status}`); }
-    const execData = await execResponse.json();
-    const b64Result = execData.content?.filter(b=>b.type==='text').map(b=>b.text).join('').trim().replace(/```[\w]*\n?/g,'').replace(/\n/g,'');
+    if(!response.ok){
+      const errText = await response.text();
+      throw new Error(`Error API ${response.status}: ${errText.slice(0,200)}`);
+    }
+    const data = await response.json();
+    if(data.error){ throw new Error(data.error.message || JSON.stringify(data.error)); }
  
-    if(!b64Result || b64Result.length < 100){ throw new Error('No se pudo generar el archivo. Intenta de nuevo.'); }
+    let b64Result = data.content?.filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+    // Clean any markdown or extra text
+    b64Result = b64Result.replace(/```[\w]*\n?/g,'').replace(/```/g,'').trim();
+    // If it has newlines inside base64, remove them
+    b64Result = b64Result.replace(/\n/g,'');
+ 
+    if(!b64Result || b64Result.length < 1000){
+      throw new Error('El archivo generado está vacío o incompleto. Intenta de nuevo.');
+    }
  
     // Download
     const binary = atob(b64Result);
@@ -426,10 +419,10 @@ Return ONLY the base64 string of the filled Excel file.`
     const fecha = new Date().toISOString().slice(0,10);
     a.href=url; a.download=`FormatoAlta_${clienteSafe}_${fecha}.xlsx`; a.click();
     URL.revokeObjectURL(url);
-    genArea.innerHTML='<div class="notice" style="text-align:center;">✅ <strong>Excel generado y descargado correctamente.</strong><br><small>Revisa tu carpeta de descargas.</small></div><div style="text-align:center;margin-top:12px;"><button class="btn btn-export" onclick="generateExcel()">⬇ Generar de nuevo</button></div>';
+    genArea.innerHTML='<div class="notice" style="text-align:center;">✅ <strong>Excel generado y descargado.</strong><br><small>Revisa tu carpeta de descargas.</small></div><div style="text-align:center;margin-top:12px;"><button class="btn btn-export" onclick="generateExcel()">⬇ Generar de nuevo</button></div>';
  
   } catch(err) {
-    genArea.innerHTML='<div style="text-align:center;padding:8px 0 4px;"><button class="btn btn-export" id="btn-gen" onclick="generateExcel()">⬇ Generar Excel oficial</button></div>';
+    genArea.innerHTML='<div style="text-align:center;padding:8px 0 4px;"><button class="btn btn-export" onclick="generateExcel()">⬇ Generar Excel oficial</button></div>';
     errorArea.innerHTML=`<div class="error-box">Error: ${err.message}</div>`;
   }
 }
